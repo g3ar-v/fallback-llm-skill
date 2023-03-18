@@ -1,0 +1,9 @@
+skillMetadata:
+  sections:
+    - name: Settings
+      fields:
+        - name: OpenAI key
+          type: password
+          label: access token
+          value: ""
+          placeholder: token
