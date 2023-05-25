@@ -4,7 +4,7 @@ from core.skills.common_query_skill import CommonQuerySkill, CQSMatchLevel
 model = "gpt-3.5-turbo"
 
 
-class FallbackChatgpt(CommonQuerySkill):
+class FallbackGPT(CommonQuerySkill):
     def __init__(self):
         super().__init__()
         self.key = self.settings.get("key")
@@ -13,20 +13,17 @@ class FallbackChatgpt(CommonQuerySkill):
         pass
 
     def CQS_match_query_phrase(self, utt):
-        response = self.handle_fallback_ChatGPT(utt)
-        # self.log.info(response)
+        response = self.handle_fallback_GPT(utt)
         if response:
-            if "?" in response:
+            if response.endswith("?"):
                 return None
             return (utt, CQSMatchLevel.CATEGORY, response)
         return None
 
-    def handle_fallback_ChatGPT(self, message):
-        # prompt = self.build_prompt(message.data['utterance'])
+    def handle_fallback_GPT(self, message):
         prompt = self.build_prompt(message)
 
         self.log.info(f'prompt: {prompt}')
-        # self.log.info(type(self.init_prompt))
 
         try:
             completion = self.chatgpt.create(model=model, messages=prompt,
@@ -39,7 +36,7 @@ class FallbackChatgpt(CommonQuerySkill):
             response = response.replace(unwanted_string, "")
             return response
         except Exception as e:
-            self.log.error(f'error in ChatGPT fallback request: {e}')
+            self.log.error('error in fallback request: {}'.format(e))
             return None
 
     def build_prompt(self, prompt):
@@ -47,7 +44,6 @@ class FallbackChatgpt(CommonQuerySkill):
 
     @property
     def chatgpt(self):
-        # key = self.settings.get("key") or api_key
         if not self.key:
             raise ValueError("Openai key not set in settings.json")
         ai.api_key = self.key
@@ -58,4 +54,4 @@ class FallbackChatgpt(CommonQuerySkill):
 
 
 def create_skill():
-    return FallbackChatgpt()
+    return FallbackGPT()
