@@ -11,9 +11,12 @@ from core.skills.common_query_skill import CommonQuerySkill, CQSMatchLevel
 
 model = "gpt-3.5-turbo"
 
+# TODO: BUILD BETTER PROMPT
 DEFAULT_PROMPT = """The following is a friendly conversation between a human and an
-AI. The AI is talkative and provides lots of specific details from its context. If the
-AI does not know the answer to a question, it truthfully says it does not know.
+AI. The AI is interested in the conversation and provides lots of specific concise
+details from its context. If the AI does not know the answer to a question, it 
+truthfully says it does not know. The AI is inquisitive and interested in the
+conversation at hand
 
 Human: {input}
 AI:"""
@@ -25,9 +28,9 @@ class FallbackGPT(CommonQuerySkill, Skill):
         self.key = self.settings.get("key")
 
     def initialize(self):
+        os.environ["OPENAI_API_KEY"] = self.key
         self.llm = OpenAI(temperature=0.2)
         self.memory = ConversationBufferMemory()
-        os.environ["OPENAI_API_KEY"] = self.key
 
     def CQS_match_query_phrase(self, utt):
         response = self.handle_fallback_GPT(utt)
@@ -41,6 +44,7 @@ class FallbackGPT(CommonQuerySkill, Skill):
         return self.settings.get("chat_timeout") or 300
 
     def handle_fallback_GPT(self, message):
+        """Handles qa utterances """
         prompt = self.build_prompt(message)
 
         # self.log.info(f'prompt: {prompt}')
@@ -61,10 +65,10 @@ class FallbackGPT(CommonQuerySkill, Skill):
 
     @intent_file_handler("start_conversation.intent")
     def handle_converse_init(self, message):
+        """Converse with system about anything"""
         initial_prompt = "What do you want to talk about?"
         self.memory.chat_memory.add_ai_message(initial_prompt)
-        self.speak_dialog(initial_prompt, wait=True)
-        self.make_active()
+        self.speak_dialog(initial_prompt, wait=True, expect_response=True)
         self.bus.emit(Message("core.mic.listen"))
 
     def _get_llm_response(self, query: str) -> str:
@@ -80,7 +84,8 @@ class FallbackGPT(CommonQuerySkill, Skill):
         # if time() -
         utterance = message.data.get('utterances', [""])[-1]
         if self.voc_match(utterance, "stop"):
-            self.speak_dialog("ending conversation")
+            self.log.info("Ending conversation")
+            # self.speak_dialog("ending conversation")
             return False
         self.log.info("utterance: {}".format(utterance))
         Thread(target=self._threaded_converse, args=([utterance]), daemon=True).start()
@@ -89,15 +94,16 @@ class FallbackGPT(CommonQuerySkill, Skill):
     def _threaded_converse(self, utterance):
         try:
             response = self._get_llm_response(utterance)
-            self.speak(response, expect_response=True if response.endswith("?") or "?"
-                       in response else False)
+            # self.speak(response, expect_response=True if response.endswith("?") or "?"
+            #            in response else False)
+            self.speak(response, expect_response=True)
         except Exception as e:
             self.log.exception(e)
 
     def build_prompt(self, prompt):
         return [{"role": "user", "content": f"""You are a personal assistant. Answer
         the query given below {prompt}. based on the query if it's a query answer the
-        query. Confidently give a straightforward response to the speaker but also be
+        # query. Confidently give a straightforward response to the speaker but also be
         inquisitive at times, even if you don't understand them. DO NOT ask to
         repeat, and DO NOT ask for clarification. answer the speaker directly. """}]
 
