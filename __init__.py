@@ -6,17 +6,17 @@ from threading import Thread
 from langchain.llms import OpenAI
 from langchain.chains import ConversationChain
 from langchain.memory import ConversationBufferMemory
-from core import Skill, intent_file_handler, Message
+from core import Skill, intent_file_handler
 from core.skills.common_query_skill import CommonQuerySkill, CQSMatchLevel
 
 model = "gpt-3.5-turbo"
 
 # TODO: BUILD BETTER PROMPT
-DEFAULT_PROMPT = """The following is a friendly conversation between a human and an
-AI. The AI is interested in the conversation and provides lots of specific concise
-details from its context. If the AI does not know the answer to a question, it 
+DEFAULT_PROMPT = """The following is a conversation between a human and an
+AI called mycroft who is the humans personal assistant. The AI is interested in the conversation and
+provides lots of specific concise details from its context. If the AI does not know the answer to a question, it 
 truthfully says it does not know. The AI is inquisitive and interested in the
-conversation at hand
+conversation at hand. Call me sir or boss when it seems necessary
 
 Human: {input}
 AI:"""
@@ -29,7 +29,7 @@ class FallbackGPT(CommonQuerySkill, Skill):
 
     def initialize(self):
         os.environ["OPENAI_API_KEY"] = self.key
-        self.llm = OpenAI(temperature=0.2)
+        self.llm = OpenAI(temperature=0.7)
         self.memory = ConversationBufferMemory()
 
     def CQS_match_query_phrase(self, utt):
@@ -37,11 +37,6 @@ class FallbackGPT(CommonQuerySkill, Skill):
         if response:
             return (utt, CQSMatchLevel.CATEGORY, response)
         return None
-
-    @property
-    def chat_timeout(self):
-        """The chat_timeout in seconds."""
-        return self.settings.get("chat_timeout") or 300
 
     def handle_fallback_GPT(self, message):
         """Handles qa utterances """
@@ -66,36 +61,35 @@ class FallbackGPT(CommonQuerySkill, Skill):
     @intent_file_handler("start_conversation.intent")
     def handle_converse_init(self, message):
         """Converse with system about anything"""
-        initial_prompt = "What do you want to talk about?"
+        initial_prompt = "Sure, what's on your mind?"
         self.memory.chat_memory.add_ai_message(initial_prompt)
         self.speak_dialog(initial_prompt, wait=True, expect_response=True)
-        self.bus.emit(Message("core.mic.listen"))
+        # self.get_response()
 
     def _get_llm_response(self, query: str) -> str:
         """
         Get a response from an LLM that is primed/prompted with chat history
         """
-        conversation = ConversationChain(llm=self.llm, verbose=True,
+        conversation = ConversationChain(llm=self.llm, verbose=False,
                                          memory=self.memory)
         return conversation.predict(input=query)
 
     def converse(self, message=None):
-        # Track timeout and return false.
-        # if time() -
         utterance = message.data.get('utterances', [""])[-1]
         if self.voc_match(utterance, "stop"):
             self.log.info("Ending conversation")
-            # self.speak_dialog("ending conversation")
+            self.remove_from_active_skill_list()
             return False
-        self.log.info("utterance: {}".format(utterance))
         Thread(target=self._threaded_converse, args=([utterance]), daemon=True).start()
         return True
 
     def _threaded_converse(self, utterance):
+        """
+        Args:
+            utterance (str): a string of utterance
+        """
         try:
             response = self._get_llm_response(utterance)
-            # self.speak(response, expect_response=True if response.endswith("?") or "?"
-            #            in response else False)
             self.speak(response, expect_response=True)
         except Exception as e:
             self.log.exception(e)
