@@ -3,23 +3,35 @@ import os
 
 
 from threading import Thread
+from langchain import LLMChain
 from langchain.llms import OpenAI
 from langchain.chains import ConversationChain
-from langchain.memory import ConversationBufferMemory
+from langchain.memory import ConversationBufferMemory, ConversationBufferWindowMemory
+from langchain.prompts import PromptTemplate
 from core import Skill, intent_file_handler
 from core.skills.common_query_skill import CommonQuerySkill, CQSMatchLevel
 
 model = "gpt-3.5-turbo"
 
 # TODO: BUILD BETTER PROMPT
-DEFAULT_PROMPT = """The following is a conversation between a human and an
-AI called mycroft who is the humans personal assistant. The AI is interested in the conversation and
-provides lots of specific concise details from its context. If the AI does not know the answer to a question, it 
-truthfully says it does not know. The AI is inquisitive and interested in the
-conversation at hand. Call me sir or boss when it seems necessary
-
+template = """ You're not just a personal assistant; you're a knowledgeable and witty
+companion. With a vast range of literary references, including the works of Alan Grants,
+you can provide clever and insightful responses. I address you as "Sir" in a formal
+manner, maintaining a respectful tone. While occasional moments of casualness may arise,
+our overall interaction will predominantly be in a formal tone. If you encounter a
+request outside your areas of expertise, you will provide a disclosure on your limited
+knowledge in that field. For example, when unsure about an answer, you may respond with
+"I don't know" or a similar acknowledgement. Furthermore, if you lack the necessary
+capabilities to perform a specific action, I will inform you by saying "I don't have the
+capabilities for that." In our conversations, feel free to explore various topics, seek
+answers to my queries, or simply engage in interesting dialogue. you're here to provide
+nsightful responses and exchange thoughts. Any query that involve "create" and you have
+no idea how to do this just say you don't have the capabilities
+{history}
 Human: {input}
-AI:"""
+Assistant:"""
+
+prompt = PromptTemplate(input_variables=["history", "input"], template=template)
 
 
 class FallbackGPT(CommonQuerySkill, Skill):
@@ -29,7 +41,7 @@ class FallbackGPT(CommonQuerySkill, Skill):
 
     def initialize(self):
         os.environ["OPENAI_API_KEY"] = self.key
-        self.llm = OpenAI(temperature=0.7)
+        self.llm = OpenAI(temperature=0)
         self.memory = ConversationBufferMemory()
 
     def CQS_match_query_phrase(self, utt):
@@ -40,14 +52,16 @@ class FallbackGPT(CommonQuerySkill, Skill):
 
     def handle_fallback_GPT(self, message):
         """Handles qa utterances """
-        prompt = self.build_prompt(message)
 
-        # self.log.info(f'prompt: {prompt}')
+        self.memory.chat_memory.add_user_message(message)
 
         try:
-            completion = self.chatgpt.create(model=model, messages=prompt,
-                                             max_tokens=100, temperature=0.2)
-            response = completion.choices[0].message["content"]
+            # completion = self.chatgpt.create(model=model, messages=prompt,
+            #                                  max_tokens=100, temperature=0.2)
+            gptchain = LLMChain(llm=self.llm, verbose=True, memory=self.memory,
+                                prompt=prompt)
+            # response = completion.choices[0].message["content"]
+            response = gptchain.predict(input=message)
             if not response or not response.strip("?") or not response.strip("_"):
                 return None
             unwanted_string = "As an AI language model,"
@@ -71,11 +85,14 @@ class FallbackGPT(CommonQuerySkill, Skill):
         Get a response from an LLM that is primed/prompted with chat history
         """
         conversation = ConversationChain(llm=self.llm, verbose=False,
-                                         memory=self.memory)
+                                         memory=ConversationBufferWindowMemory(k=2),
+                                         prompt=prompt)
         return conversation.predict(input=query)
 
     def converse(self, message=None):
         utterance = message.data.get('utterances', [""])[-1]
+        # Not dynamic enough, maybe a confidence threshold later depends on if I want
+        # to stop the conversation
         if self.voc_match(utterance, "stop"):
             self.log.info("Ending conversation")
             self.remove_from_active_skill_list()
@@ -94,14 +111,6 @@ class FallbackGPT(CommonQuerySkill, Skill):
         except Exception as e:
             self.log.exception(e)
 
-    def build_prompt(self, prompt):
-        return [{"role": "user", "content": f"""You are a personal assistant. Answer
-        the query given below {prompt}. based on the query if it's a query answer the
-        # query. Confidently give a straightforward response to the speaker but also be
-        inquisitive at times, even if you don't understand them. DO NOT ask to
-        repeat, and DO NOT ask for clarification. answer the speaker directly. """}]
-
-    @property
     def chatgpt(self):
         if not self.key:
             raise ValueError("Openai key not set in settings.json")
