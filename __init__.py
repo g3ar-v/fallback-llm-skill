@@ -56,17 +56,12 @@ class FallbackGPT(CommonQuerySkill, Skill):
         self.memory.chat_memory.add_user_message(message)
 
         try:
-            # completion = self.chatgpt.create(model=model, messages=prompt,
-            #                                  max_tokens=100, temperature=0.2)
-            gptchain = LLMChain(llm=self.llm, verbose=True, memory=self.memory,
+            gptchain = LLMChain(llm=self.llm, verbose=False, memory=self.memory,
                                 prompt=prompt)
-            # response = completion.choices[0].message["content"]
             response = gptchain.predict(input=message)
             if not response or not response.strip("?") or not response.strip("_"):
                 return None
-            unwanted_string = "As an AI language model,"
-            response = response.replace(unwanted_string, "")
-            self.log.info(f'response: {response}')
+            # self.log.info(f'response: {response}')
             return response
         except Exception as e:
             self.log.error('error in fallback request: {}'.format(e))
@@ -110,12 +105,6 @@ class FallbackGPT(CommonQuerySkill, Skill):
             self.speak(response, expect_response=True)
         except Exception as e:
             self.log.exception(e)
-
-    def chatgpt(self):
-        if not self.key:
-            raise ValueError("Openai key not set in settings.json")
-        ai.api_key = self.key
-        return ai.ChatCompletion
 
     def stop(self):
         pass
