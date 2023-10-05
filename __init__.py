@@ -3,7 +3,6 @@ import subprocess
 from langchain.chains import LLMChain
 from langchain.schema import HumanMessage, SystemMessage
 from langchain.memory import VectorStoreRetrieverMemory, ConversationBufferWindowMemory
-from langchain.prompts import PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.vectorstores import MongoDBAtlasVectorSearch
 from langchain.embeddings.openai import OpenAIEmbeddings
@@ -11,29 +10,18 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 from core.intent_services import AdaptIntent
 from core import Skill, intent_handler
 from core.skills.common_query_skill import CommonQuerySkill, CQSMatchLevel
-from core.llm import LLM, main_persona_template, prompt_to_osa
+from core.llm import LLM, main_persona_prompt, prompt_to_osa
 from core.util.time import now_local
 from pymongo import MongoClient
 
 model = "gpt-3.5-turbo"
 
-
-# prompt = PromptTemplate(
-#     input_variables=["query", "date_str"],
-#     template=main_persona_template,
-# )
-prompt = PromptTemplate(
-    input_variables=["input", "curr_conv", "date_str", "rel_mem"],
-    template=main_persona_template,
-)
-
-# NOTE: for security reasons you might want to store connection string as env var
 applescript_prompt = SystemMessage(content=prompt_to_osa)
 
 embeddings = OpenAIEmbeddings()
 
 
-class FallbackGPT(CommonQuerySkill, Skill):
+class FallbackLLM(CommonQuerySkill, Skill):
     def __init__(self):
         super().__init__()
 
@@ -71,7 +59,7 @@ class FallbackGPT(CommonQuerySkill, Skill):
             return (utt, CQSMatchLevel.CATEGORY, response)
         return None
 
-    def handle_fallback_GPT(self, message):
+    def handle_fallback_llm(self, message):
         """Handles qa utterances"""
 
         today = now_local()
@@ -83,9 +71,7 @@ class FallbackGPT(CommonQuerySkill, Skill):
                 "history"
             ]
             chat_history = self.chat_history.load_memory_variables({})["chat_history"]
-            # self.log.info(chat_history)
-            # self.log.info(self.chat_history.load_memory_variables({}))
-            llm = LLMChain(llm=self.llm.model, verbose=True, prompt=prompt)
+            llm = LLMChain(llm=self.llm.model, verbose=True, prompt=main_persona_prompt)
             response = llm.predict(
                 input=message,
                 date_str=date_str + ", " + time_str,
@@ -93,8 +79,6 @@ class FallbackGPT(CommonQuerySkill, Skill):
                 curr_conv=chat_history,
             )
             self.log.info("LLM is handling utterance")
-            self.message_history.add_user_message(message)
-            self.message_history.add_ai_message(response)
             return response
         except Exception as e:
             self.log.error("error in fallback request: {}".format(e))
@@ -133,11 +117,4 @@ class FallbackGPT(CommonQuerySkill, Skill):
 
 
 def create_skill():
-    return FallbackGPT()
-
-
-# if __name__ == "__main__":
-#     # Your code here
-#     gpt = FallbackGPT()
-#     gpt.initialize()
-#     gpt.retrieval("what was I saying earlier")
+    return FallbackLLM()
