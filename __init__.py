@@ -1,9 +1,8 @@
-import subprocess
+import interpreter
 
 from langchain.chains import LLMChain
-from langchain.schema import HumanMessage, SystemMessage
+from langchain.schema import SystemMessage
 from langchain.memory import VectorStoreRetrieverMemory, ConversationBufferWindowMemory
-from langchain.chat_models import ChatOpenAI
 from langchain.vectorstores import MongoDBAtlasVectorSearch
 from langchain.embeddings.openai import OpenAIEmbeddings
 
@@ -54,7 +53,7 @@ class FallbackLLM(CommonQuerySkill, Skill):
         self.relevant_memory = VectorStoreRetrieverMemory(retriever=retriever)
 
     def CQS_match_query_phrase(self, utt):
-        response = self.handle_fallback_GPT(utt)
+        response = self.handle_fallback_llm(utt)
         if response:
             return (utt, CQSMatchLevel.CATEGORY, response)
         return None
@@ -86,31 +85,25 @@ class FallbackLLM(CommonQuerySkill, Skill):
 
     @intent_handler(AdaptIntent().require("query"))
     def handle_mac_script_exec(self, message):
-        prompt = message.data.get("utterances", [""])[-1]
-        chat = ChatOpenAI(model_name=model, openai_api_key=self.openai_key)
-
-        response = chat.generate(
-            messages=[
-                [
-                    applescript_prompt,
-                    HumanMessage(content=f"Here's what I'm trying to do: {prompt}"),
-                ]
-            ]
-        )
-        script = response.generations[0][0].message.content
-        # Execute the script
-        self.log.info(script)
-        try:
+        utterance = message.data.get("utterances", [""])[-1]
+        interpreter.model = "gpt-3.5-turbo"
+        interpreter.auto_run = True
+        interpreter.chat(utterance, display=True)
+        last_message = interpreter.messages[-1]["message"]
+        self.log.info("length of message: " + str(len(last_message)))
+        if len(last_message) <= 225:
+            # check for new line to get the last sentence
+            if "\n" in last_message:
+                last_message = last_message.split("\n")[:-1]
+            self.log.info(last_message)
+            self.speak(last_message)
+        else:
             self.speak_dialog("confirmation")
-            output = subprocess.check_output(["osascript", "-e", script])
-            # self.speak(output.decode())
-            self.log.debug(output.decode())
-        except subprocess.CalledProcessError as e:
-            self.speak_dialog("I couldn't carry out that operation, Sir")
-            self.log.error(f"Script execution failed: {e}")
-        except OSError as e:
-            self.speak_dialog("no_osascript")
-            self.log.error(f"osascript not found: {e}")
+
+        # self.speak(last_message)
+        # print(f"last msg: {last_message}")
+        # self.log.info(response)
+        # self.speak(response)
 
     def stop(self):
         pass
@@ -118,3 +111,14 @@ class FallbackLLM(CommonQuerySkill, Skill):
 
 def create_skill():
     return FallbackLLM()
+
+
+if __name__ == "__main__":
+    from core.messagebus import Message
+
+    skill = FallbackLLM()
+    skill.initialize()
+    message = Message(
+        "adapt", {"utterances": ["play music from spotify application on my mac"]}
+    )
+    skill.handle_mac_script_exec(message)
