@@ -1,7 +1,6 @@
 import interpreter
 
 from langchain.chains import LLMChain
-from langchain.schema import SystemMessage
 from langchain.memory import VectorStoreRetrieverMemory, ConversationBufferWindowMemory
 from langchain.vectorstores import MongoDBAtlasVectorSearch
 from langchain.embeddings.openai import OpenAIEmbeddings
@@ -9,13 +8,9 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 from core.intent_services import AdaptIntent
 from core import Skill, intent_handler
 from core.skills.common_query_skill import CommonQuerySkill, CQSMatchLevel
-from core.llm import LLM, main_persona_prompt, prompt_to_osa
+from core.llm import LLM, main_persona_prompt
 from core.util.time import now_local
 from pymongo import MongoClient
-
-model = "gpt-3.5-turbo"
-
-applescript_prompt = SystemMessage(content=prompt_to_osa)
 
 embeddings = OpenAIEmbeddings()
 
@@ -49,7 +44,9 @@ class FallbackLLM(CommonQuerySkill, Skill):
         self.vectorstore = MongoDBAtlasVectorSearch(
             self.collection, embeddings, index_name="default"
         )
-        retriever = self.vectorstore.as_retriever(search_kwargs=dict(k=1))
+        retriever = self.vectorstore.as_retriever(
+            search_kwargs=dict(k=1), search_type="mmr"
+        )
         self.relevant_memory = VectorStoreRetrieverMemory(retriever=retriever)
 
     def CQS_match_query_phrase(self, utt):
@@ -66,15 +63,16 @@ class FallbackLLM(CommonQuerySkill, Skill):
         time_str = today.strftime("%I:%M %p")
 
         try:
-            rel_mem = self.relevant_memory.load_memory_variables({"prompt": message})[
-                "history"
-            ]
+            # rel_mem = self.relevant_memory.load_memory_variables({"prompt": message})[
+            #     "history"
+            # ]
+
             chat_history = self.chat_history.load_memory_variables({})["chat_history"]
             llm = LLMChain(llm=self.llm.model, verbose=True, prompt=main_persona_prompt)
             response = llm.predict(
                 input=message,
                 date_str=date_str + ", " + time_str,
-                rel_mem=rel_mem,
+                rel_mem=None,
                 curr_conv=chat_history,
             )
             self.log.info("LLM is handling utterance")
@@ -83,12 +81,12 @@ class FallbackLLM(CommonQuerySkill, Skill):
             self.log.error("error in fallback request: {}".format(e))
             return None
 
-    @intent_handler(AdaptIntent().require("query"))
+    @intent_handler(AdaptIntent().require("Query"))
     def handle_mac_script_exec(self, message):
         utterance = message.data.get("utterances", [""])[-1]
         interpreter.model = "gpt-3.5-turbo"
         interpreter.auto_run = True
-        interpreter.chat(utterance, display=True)
+        interpreter.chat(utterance, display=False)
         last_message = interpreter.messages[-1]["message"]
         self.log.info("length of message: " + str(len(last_message)))
         if len(last_message) <= 225:
@@ -98,12 +96,7 @@ class FallbackLLM(CommonQuerySkill, Skill):
             self.log.info(last_message)
             self.speak(last_message)
         else:
-            self.speak_dialog("confirmation")
-
-        # self.speak(last_message)
-        # print(f"last msg: {last_message}")
-        # self.log.info(response)
-        # self.speak(response)
+            self.speak_dialog("Confirmation")
 
     def stop(self):
         pass

@@ -1,8 +1,6 @@
 search
 play
 pause
-stop
-close
 open
 increase
 decrease
@@ -11,3 +9,5 @@ add
 reduce
 replay
 hide
+next 
+change
